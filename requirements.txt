@@ -1,2 +1,4 @@
 pyTelegramBotAPI
-pymongo[srv]
+pymongo
+boto3
+requests
