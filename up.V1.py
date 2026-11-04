@@ -105,7 +105,7 @@ def load_language(lang_code):
         "start_message": "Welcome to Relax Movizone Bot! Send your large video to stream directly to Cloudflare R2.",
         "upload_invalid_media_type": "Please send a valid video or media file.",
         "default_caption": "Relax Movizone Video",
-        "upload_success_message": "✅ **File Uploaded Successfully to Cloudflare R2!**\n\n🆔 **File ID:** `{file_id}`\n🔗 **Embed/Stream Link:**\n`{download_link}`",
+        "upload_success_message": "✅ **File Uploaded Successfully to Cloudflare R2!**\n\n🆔 **File ID:** `{file_id}`\n🔗 **Embed/Stream Link:** {download_link}",
         "download_link_error": "❌ Invalid or expired download link.",
         "delete_file_invalid_id": "Please enter a valid numeric File ID.",
         "file_not_found": "❌ File not found.",
