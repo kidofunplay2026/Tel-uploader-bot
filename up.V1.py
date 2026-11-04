@@ -239,7 +239,7 @@ class SimpleHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Bot is running!")
 
 def run_web_server():
-    server_address = ('0.0.0.0', 8080)
+    server_address = ('0.0.0.0', 8100)
     httpd = HTTPServer(server_address, SimpleHandler)
     httpd.serve_forever()
 
