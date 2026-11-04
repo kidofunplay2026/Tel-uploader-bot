@@ -45,7 +45,7 @@ transfer_config = TransferConfig(
 )
 
 # --- MongoDB Setup ---
-MONGODB_URI = os.environ.get('MONGODB_URI', "")
+MONGODB_URI = os.environ.get('MONGODB_URI', "mongodb+srv://tafsiralam2023_db_user:CUoWA0xoA8lzlXJQ@cluster0.k0uslgi.mongodb.net/")
 try:
     client = pymongo.MongoClient(MONGODB_URI)
     db = client['uploader_bot_db']
