@@ -4,9 +4,6 @@ primary_region = 'ams'
 [build]
   builder = 'paketobuildpacks/builder:base'
 
-[processes]
-  app = "python up.v1.py"
-
 [[vm]]
   memory = '1gb'
   cpu_kind = 'shared'
