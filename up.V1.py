@@ -237,16 +237,6 @@ class SimpleHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"Bot is running!")
-
-def run_web_server():
-    server_address = ('0.0.0.0', 8100)
-    httpd = HTTPServer(server_address, SimpleHandler)
-    httpd.serve_forever()
-
-# --- Main Execution ---
-if __name__ == "__main__":
-    # ব্যাকগ্রাউন্ডে ডামি সার্ভার চালু রাখা যাতে Fly.io পোর্ট এরর না দেয়
-    threading.Thread(target=run_web_server, daemon=True).start()
     
     try:
         if counters_collection.find_one({'_id': 'global_file_id'}) is None:
