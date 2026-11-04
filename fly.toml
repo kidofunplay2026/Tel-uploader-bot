@@ -2,10 +2,7 @@ app = 'tel-uploader-bot'
 primary_region = 'ams'
 
 [build]
-  builder = 'paketobuildpacks/builder:base'
-
-[processes]
-app = "python up.v1.py"
+  # বিল্ডপ্যাক লাইনটি মুছে ফেলুন বা কমেন্ট করে দিন
 
 [[vm]]
   memory = '1gb'
