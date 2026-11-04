@@ -2,7 +2,14 @@ app = 'tel-uploader-bot'
 primary_region = 'ams'
 
 [build]
-  # বিল্ডপ্যাক লাইনটি মুছে ফেলুন বা কমেন্ট করে দিন
+  dockerfile = 'Dockerfile'
+
+[services]
+  internal_port = 0
+  processes = ["app"]
+
+[[services.ports]]
+  port = 0
 
 [[vm]]
   memory = '1gb'
