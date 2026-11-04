@@ -28,7 +28,7 @@ R2_SECRET_ACCESS_KEY = "4b27c68e8e1599885cffe25e7d41217d2fae82e85a41aa02f0756d57
 BUCKET_NAME = "relax-movizone-bucket"
 
 # আপনার R2 বাক্কে পাবলিক ডোমেইন বা কাস্টম ডোমেইন এখানে বসাবেন
-R2_PUBLIC_DOMAIN = "https://your-r2-public-domain.com" 
+R2_PUBLIC_DOMAIN = "https://pub-ee66f5d697d3475a99079f1a9c567f66.r2.dev" 
 
 s3_client = boto3.client(
     's3',
