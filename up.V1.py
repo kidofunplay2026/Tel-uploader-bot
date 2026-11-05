@@ -28,19 +28,21 @@ r2_client = boto3.client(
     aws_secret_access_key=R2_SECRET_ACCESS_KEY,
     region_name='auto'
 )
-
 # --- Backblaze B2 Setup ---
 B2_ENDPOINT = "https://s3.us-west-005.backblazeb2.com"
 B2_ACCESS_KEY_ID = "00529877a5de96a0000000001"
 B2_SECRET_ACCESS_KEY = "K005tvFV6fS+ClJPMhS+VzRdCK6YD6I"
 B2_BUCKET_NAME = "relex-movi-zone-Bucket"
 
+from botocore.config import Config
+
 b2_client = boto3.client(
     's3',
     endpoint_url=B2_ENDPOINT,
     aws_access_key_id=B2_ACCESS_KEY_ID,
     aws_secret_access_key=B2_SECRET_ACCESS_KEY,
-    region_name='us-west-005'
+    region_name='us-west-005',
+    config=Config(signature_version='s3v4')
 )
 
 # --- MongoDB Setup ---
