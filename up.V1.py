@@ -94,11 +94,34 @@ def main_keyboard(lang_code):
     markup.add(types.KeyboardButton(lang_data["profile_button"]))
     return markup
 
+# --- Command Handlers ---
 @bot.message_handler(commands=['start'])
 def start_command_handler(message):
     lang_data = get_user_lang(message.from_user.id)
     send_message(message.chat.id, lang_data["start_message"], reply_markup=main_keyboard(DEFAULT_LANGUAGE))
 
+# --- Reply Keyboard Menu Handlers ---
+@bot.message_handler(func=lambda message: message.text == "📤 Upload Video")
+def upload_btn_handler(message):
+    send_message(message.chat.id, "দয়া করে আপনার বড় ভিডিও বা মিডিয়া ফাইলটি সরাসরি এখানে পাঠান।")
+
+@bot.message_handler(func=lambda message: message.text == "🗑 Delete File")
+def delete_btn_handler(message):
+    send_message(message.chat.id, "ফাইল ডিলিট করতে সঠিক File ID প্রদান করুন।")
+
+@bot.message_handler(func=lambda message: message.text == "📥 Get File")
+def get_file_btn_handler(message):
+    send_message(message.chat.id, "ফাইল পেতে বা দেখতে আপনার File ID দিন।")
+
+@bot.message_handler(func=lambda message: message.text == "👤 Profile")
+def profile_btn_handler(message):
+    user_id = message.from_user.id
+    user_name = message.from_user.first_name
+    file_count = files_collection.count_documents({'uploader_id': user_id})
+    profile_text = f"👤 **User Profile**\n\nName: {user_name}\nID: `{user_id}`\nTotal Uploads: {file_count}"
+    send_message(message.chat.id, profile_text)
+
+# --- Stream Upload & R2 Chunk Handler (RAM Safe) ---
 @bot.message_handler(content_types=['photo', 'video', 'document', 'audio'], func=lambda message: True)
 def upload_media_handler(message):
     user_id = message.from_user.id
