@@ -202,13 +202,19 @@ def process_and_upload_file(message, choice, chat_id, message_id):
                 for chunk in r.iter_content(chunk_size=8192):
                     if chunk: f.write(chunk)
         
+        # ব্রাউজারে সরাসরি প্লে (Inline) হওয়ার জন্য হেডার কনফিগারেশন
+        extra_args = {
+            'ContentType': 'video/mp4',
+            'ContentDisposition': 'inline'
+        }
+
         if choice == "storage_r2":
-            r2_client.upload_file(local_path, R2_BUCKET_NAME, unique_filename, Config=transfer_config)
+            r2_client.upload_file(local_path, R2_BUCKET_NAME, unique_filename, ExtraArgs=extra_args, Config=transfer_config)
             file_url_link = f"{R2_PUBLIC_DOMAIN}/{unique_filename}"
             download_url_link = file_url_link
             storage_name = "Cloudflare R2"
         else:
-            b2_client.upload_file(local_path, B2_BUCKET_NAME, unique_filename, Config=transfer_config)
+            b2_client.upload_file(local_path, B2_BUCKET_NAME, unique_filename, ExtraArgs=extra_args)
             file_url_link = f"{B2_ENDPOINT}/file/{B2_BUCKET_NAME}/{unique_filename}"
             download_url_link = file_url_link
             storage_name = "Backblaze B2"
