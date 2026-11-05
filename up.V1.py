@@ -249,4 +249,10 @@ if __name__ == "__main__":
     server_thread.start()
 
     print("Bot starting with R2 Multipart Streaming & Auto-Cleanup...")
-    bot.infinity_polling()
+    while True:
+        try:
+            bot.infinity_polling(timeout=60, long_polling_timeout=60)
+        except Exception as e:
+            print(f"Polling error: {e}")
+            import time
+            time.sleep(5)
