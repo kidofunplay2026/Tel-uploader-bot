@@ -42,9 +42,11 @@ b2_client = boto3.client(
     aws_access_key_id=B2_ACCESS_KEY_ID,
     aws_secret_access_key=B2_SECRET_ACCESS_KEY,
     region_name='us-west-005',
-    config=Config(signature_version='s3v4')
+    config=Config(
+        signature_version='s3v4',
+        s3={'addressing_style': 'path'}
+    )
 )
-
 # --- MongoDB Setup ---
 MONGODB_URI = os.environ.get('MONGODB_URI', "mongodb+srv://tafsiralam2023_db_user:CUoWA0xoA8lzlXJQ@cluster0.k0uslgi.mongodb.net/")
 try:
