@@ -9,6 +9,9 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import asyncio
 
+# --- B2SDK Native Import ---
+from b2sdk.v2 import *
+
 # --- Credentials ---
 API_ID = 30908660
 API_HASH = "ee861ae49daea1486f10d3a45a1b3ea9"
@@ -28,25 +31,17 @@ r2_client = boto3.client(
     aws_secret_access_key=R2_SECRET_ACCESS_KEY,
     region_name='auto'
 )
-# --- Backblaze B2 Setup ---
-B2_ENDPOINT = "https://s3.us-west-005.backblazeb2.com"
-B2_ACCESS_KEY_ID = "00529877a5de96a0000000001"
-B2_SECRET_ACCESS_KEY = "K005tvFV6fS+ClJPMhS+VzRdCK6YD6I"
+
+# --- Backblaze B2 Native Setup ---
+B2_KEY_ID = "00529877a5de96a0000000001"
+B2_APPLICATION_KEY = "K005tvFV6fS+ClJPMhS+VzRdCK6YD6I"
 B2_BUCKET_NAME = "relex-movi-zone-Bucket"
 
-from botocore.config import Config
+# b2sdk ऑथরাইজেশন সেটআপ
+info = InMemoryAccountInfo()
+b2_api = B2Api(info)
+b2_api.authorize_account("production", B2_KEY_ID, B2_APPLICATION_KEY)
 
-b2_client = boto3.client(
-    's3',
-    endpoint_url=B2_ENDPOINT,
-    aws_access_key_id=B2_ACCESS_KEY_ID,
-    aws_secret_access_key=B2_SECRET_ACCESS_KEY,
-    region_name='us-west-005',
-    config=Config(
-        signature_version='s3v4',
-        s3={'addressing_style': 'path'}
-    )
-)
 # --- MongoDB Setup ---
 MONGODB_URI = os.environ.get('MONGODB_URI', "mongodb+srv://tafsiralam2023_db_user:CUoWA0xoA8lzlXJQ@cluster0.k0uslgi.mongodb.net/")
 try:
@@ -99,7 +94,6 @@ async def callback_handler(event):
     storage_name = "Cloudflare R2" if data == "r2" else "Backblaze B2"
     status_msg = await event.edit(f"🚀 ব্যাকগ্রাউন্ডে ফাইল ডাউনলোড ও **{storage_name}**-এ আপলোড শুরু হয়েছে...")
     
-    # ব্যাকগ্রাউন্ডে টাস্ক রান করার জন্য যাতে সার্ভার ব্লক না হয়
     asyncio.create_task(process_upload_task(original_msg, data, storage_name, event.chat_id, status_msg.id))
 
 async def process_upload_task(original_msg, data, storage_name, chat_id, message_id):
@@ -116,19 +110,23 @@ async def process_upload_task(original_msg, data, storage_name, chat_id, message
         unique_filename = f"movie_{global_file_id}{file_extension}"
         local_path = f"temp_{unique_filename}"
         
-        # ছোট চংক সাইজ ব্যবহার করে মেমোরি সেভ করা
         with open(local_path, 'wb') as f:
             async for chunk in bot.iter_download(original_msg.media, chunk_size=512 * 1024):
                 f.write(chunk)
         
-        extra_args = {'ContentType': 'video/mp4', 'ContentDisposition': 'inline'}
-
         if data == "r2":
+            extra_args = {'ContentType': 'video/mp4', 'ContentDisposition': 'inline'}
             r2_client.upload_file(local_path, R2_BUCKET_NAME, unique_filename, ExtraArgs=extra_args)
             file_url_link = f"{R2_PUBLIC_DOMAIN}/{unique_filename}"
         else:
-            b2_client.upload_file(local_path, B2_BUCKET_NAME, unique_filename, ExtraArgs=extra_args)
-            file_url_link = f"{B2_ENDPOINT}/file/{B2_BUCKET_NAME}/{unique_filename}"
+            # ব্যাকব্লেজের নিজস্ব নেটিভ SDK দিয়ে আপলোড (সরাসরি বাক্সে ফাইল পুশ করবে)
+            bucket = b2_api.get_bucket_by_name(B2_BUCKET_NAME)
+            bucket.upload_local_file(
+                local_file=local_path,
+                file_name=unique_filename
+            )
+            # ব্যাকব্লেজের ডাউনলোড বা স্ট্রিম লিংক তৈরি
+            file_url_link = f"https://f005.backblazeb2.com/file/{B2_BUCKET_NAME}/{unique_filename}"
             
         files_collection.insert_one({
             '_id': global_file_id,
@@ -159,5 +157,5 @@ class SimpleHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     threading.Thread(target=lambda: HTTPServer(('0.0.0.0', int(os.environ.get("PORT", 8080))), SimpleHandler).serve_forever(), daemon=True).start()
-    print("Bot started with Async Background Uploader...")
+    print("Bot started with Native B2SDK Uploader...")
     bot.run_until_disconnected()
