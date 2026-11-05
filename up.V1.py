@@ -7,6 +7,7 @@ import boto3
 import requests
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+import asyncio
 
 # --- Credentials ---
 API_ID = 30908660
@@ -92,8 +93,12 @@ async def callback_handler(event):
         return
         
     storage_name = "Cloudflare R2" if data == "r2" else "Backblaze B2"
-    await event.edit(f"🚀 ফাইলটি চংক আকারে ডাউনলোড ও **{storage_name}**-এ আপলোড হচ্ছে, অপেক্ষা করুন...")
+    status_msg = await event.edit(f"🚀 ব্যাকগ্রাউন্ডে ফাইল ডাউনলোড ও **{storage_name}**-এ আপলোড শুরু হয়েছে...")
     
+    # ব্যাকগ্রাউন্ডে টাস্ক রান করার জন্য যাতে সার্ভার ব্লক না হয়
+    asyncio.create_task(process_upload_task(original_msg, data, storage_name, event.chat_id, status_msg.id))
+
+async def process_upload_task(original_msg, data, storage_name, chat_id, message_id):
     local_path = None
     try:
         global_file_id = get_next_sequence_value('global_file_id')
@@ -107,9 +112,9 @@ async def callback_handler(event):
         unique_filename = f"movie_{global_file_id}{file_extension}"
         local_path = f"temp_{unique_filename}"
         
-        # চংক আকারে ফাইল স্ট্রিম করে ডাউনলোড করার লজিক (మెమోরি সেভিং)
+        # ছোট চংক সাইজ ব্যবহার করে মেমোরি সেভ করা
         with open(local_path, 'wb') as f:
-            async for chunk in bot.iter_download(original_msg.media, chunk_size=1024 * 1024):
+            async for chunk in bot.iter_download(original_msg.media, chunk_size=512 * 1024):
                 f.write(chunk)
         
         extra_args = {'ContentType': 'video/mp4', 'ContentDisposition': 'inline'}
@@ -129,10 +134,13 @@ async def callback_handler(event):
             'created_at': datetime.utcnow()
         })
         
-        await event.edit(f"✅ **Uploaded to {storage_name}!**\n\n🆔 **ID:** `{global_file_id}`\n🔗 **Link:**\n`{file_url_link}`")
+        await bot.edit_message(chat_id, message_id, f"✅ **Uploaded to {storage_name}!**\n\n🆔 **ID:** `{global_file_id}`\n🔗 **Link:**\n`{file_url_link}`")
     except Exception as e:
         print(f"Error: {e}")
-        await event.edit(f"❌ আপলোড ব্যর্থ: {e}")
+        try:
+            await bot.edit_message(chat_id, message_id, f"❌ আপলোড ব্যর্থ: {e}")
+        except:
+            pass
     finally:
         if local_path and os.path.exists(local_path):
             try: os.remove(local_path)
@@ -147,5 +155,5 @@ class SimpleHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     threading.Thread(target=lambda: HTTPServer(('0.0.0.0', int(os.environ.get("PORT", 8080))), SimpleHandler).serve_forever(), daemon=True).start()
-    print("Bot started with Telethon Chunk Streaming...")
+    print("Bot started with Async Background Uploader...")
     bot.run_until_disconnected()
