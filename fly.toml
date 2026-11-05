@@ -4,12 +4,8 @@ primary_region = 'ams'
 [build]
   dockerfile = 'Dockerfile'
 
-[http_service]
-  internal_port = 0
-  force_https = false
-  auto_stop_machines = false
-  auto_start_machines = true
-  min_machines_running = 1
+[processes]
+  app = "python up.v1.py"
 
 [[vm]]
   memory = '1gb'
