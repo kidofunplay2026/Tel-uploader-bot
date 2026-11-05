@@ -37,7 +37,7 @@ B2_KEY_ID = "00529877a5de96a0000000001"
 B2_APPLICATION_KEY = "K005tvFV6fS+ClJPMhS+VzRdCK6YD6I"
 B2_BUCKET_NAME = "relex-movi-zone-Bucket"
 
-# b2sdk ऑथরাইজেশন সেটআপ
+# b2sdk অথরাইজেশন সেটআপ
 info = InMemoryAccountInfo()
 b2_api = B2Api(info)
 b2_api.authorize_account("production", B2_KEY_ID, B2_APPLICATION_KEY)
@@ -110,6 +110,7 @@ async def process_upload_task(original_msg, data, storage_name, chat_id, message
         unique_filename = f"movie_{global_file_id}{file_extension}"
         local_path = f"temp_{unique_filename}"
         
+        # চংক আকারে টেলিগ্রাম থেকে ফাইল ডাউনলোড
         with open(local_path, 'wb') as f:
             async for chunk in bot.iter_download(original_msg.media, chunk_size=512 * 1024):
                 f.write(chunk)
@@ -119,13 +120,12 @@ async def process_upload_task(original_msg, data, storage_name, chat_id, message
             r2_client.upload_file(local_path, R2_BUCKET_NAME, unique_filename, ExtraArgs=extra_args)
             file_url_link = f"{R2_PUBLIC_DOMAIN}/{unique_filename}"
         else:
-            # ব্যাকব্লেজের নিজস্ব নেটিভ SDK দিয়ে আপলোড (সরাসরি বাক্সে ফাইল পুশ করবে)
+            # ব্যাকব্লেজের নিজস্ব নেটিভ SDK দিয়ে আপলোড
             bucket = b2_api.get_bucket_by_name(B2_BUCKET_NAME)
             bucket.upload_local_file(
                 local_file=local_path,
                 file_name=unique_filename
             )
-            # ব্যাকব্লেজের ডাউনলোড বা স্ট্রিম লিংক তৈরি
             file_url_link = f"https://f005.backblazeb2.com/file/{B2_BUCKET_NAME}/{unique_filename}"
             
         files_collection.insert_one({
@@ -144,9 +144,12 @@ async def process_upload_task(original_msg, data, storage_name, chat_id, message
         except:
             pass
     finally:
+        # কাজ শেষ হওয়া মাত্রই লোকাল সার্ভার থেকে টেম্পোরারি ফাইল ডিলিট করার লজিক
         if local_path and os.path.exists(local_path):
-            try: os.remove(local_path)
-            except: pass
+            try: 
+                os.remove(local_path)
+            except: 
+                pass
 
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -156,6 +159,12 @@ class SimpleHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args): pass
 
 if __name__ == "__main__":
-    threading.Thread(target=lambda: HTTPServer(('0.0.0.0', int(os.environ.get("PORT", 8080))), SimpleHandler).serve_forever(), daemon=True).start()
-    print("Bot started with Native B2SDK Uploader...")
+    port = int(os.environ.get("PORT", 8080))
+    def run_server():
+        server = HTTPServer(('0.0.0.0', port), SimpleHandler)
+        server.serve_forever()
+        
+    threading.Thread(target=run_server, daemon=True).start()
+    print(f"HTTP Server started on port {port}")
+    print("Bot is starting...")
     bot.run_until_disconnected()
