@@ -11,6 +11,7 @@ import requests
 from boto3.s3.transfer import TransferConfig
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+import re
 
 # --- Hardcoded Config & Credentials ---
 BOT_TOKEN = "8955533459:AAE9PZjpEGTH3taG_WS6s0ZJN7FHe4OZGNA"
@@ -107,11 +108,11 @@ def upload_btn_handler(message):
 
 @bot.message_handler(func=lambda message: message.text == "🗑 Delete File")
 def delete_btn_handler(message):
-    send_message(message.chat.id, "ফাইল ডিলিট করতে সঠিক File ID প্রদান করুন।")
+    send_message(message.chat.id, "ফাইল ডিলিট করতে delete বা ডিলিট লিখে সাথে File ID দিন (যেমন: delete 22)।")
 
 @bot.message_handler(func=lambda message: message.text == "📥 Get File")
 def get_file_btn_handler(message):
-    send_message(message.chat.id, "ফাইল পেতে বা দেখতে আপনার File ID দিন।")
+    send_message(message.chat.id, "ফাইল পেতে বা দেখতে আপনার File ID দিন (যেমন: 22)।")
 
 @bot.message_handler(func=lambda message: message.text == "👤 Profile")
 def profile_btn_handler(message):
@@ -121,7 +122,50 @@ def profile_btn_handler(message):
     profile_text = f"👤 **User Profile**\n\nName: {user_name}\nID: `{user_id}`\nTotal Uploads: {file_count}"
     send_message(message.chat.id, profile_text)
 
-# --- Stream Upload & R2 Chunk Handler (RAM Safe) ---
+# --- File Delete Logic (Cloudflare R2 + Database) ---
+@bot.message_handler(func=lambda message: message.text and ("delete" in message.text.lower() or "ডিলিট" in message.text))
+def handle_delete_file_request(message):
+    numbers = re.findall(r'\d+', message.text)
+    if not numbers:
+        send_message(message.chat.id, "❌ দয়া করে সঠিক File ID দিন যা ডিলিট করতে চান (যেমন: delete 22)।")
+        return
+    
+    file_id = int(numbers[0])
+    file_doc = files_collection.find_one({'_id': file_id})
+    
+    if not file_doc:
+        send_message(message.chat.id, f"❌ File ID `{file_id}` ডাটাবেজে পাওয়া যায়নি।")
+        return
+        
+    file_name = file_doc.get('file_name')
+    
+    try:
+        s3_client.delete_object(Bucket=BUCKET_NAME, Key=file_name)
+        files_collection.delete_one({'_id': file_id})
+        send_message(message.chat.id, f"✅ File ID `{file_id}` (`{file_name}`) সফলভাবে ক্লাউডফ্লেয়ার R2 এবং ডাটাবেজ থেকে চিরতরে ডিলিট করা হয়েছে!")
+    except Exception as e:
+        print(f"R2 Delete Error: {e}")
+        send_message(message.chat.id, f"❌ ক্লাউড থেকে ফাইল ডিলিট করার সময় সমস্যা হয়েছে: {e}")
+
+# --- File ID Lookup Handler (For Get File) ---
+@bot.message_handler(func=lambda message: message.text and any(char.isdigit() for char in message.text) and not "delete" in message.text.lower() and not "ডিলিট" in message.text)
+def handle_file_id_input(message):
+    numbers = re.findall(r'\d+', message.text)
+    if not numbers:
+        return
+    
+    file_id = int(numbers[0])
+    file_doc = files_collection.find_one({'_id': file_id})
+    
+    if file_doc:
+        r2_url = file_doc.get('r2_url')
+        file_name = file_doc.get('file_name', 'Video')
+        response_text = f"📁 **File Found!**\n\n🆔 **File ID:** `{file_id}`\n📌 **File Name:** `{file_name}`\n🔗 **Stream/Embed Link:**\n`{r2_url}`"
+        send_message(message.chat.id, response_text)
+    else:
+        send_message(message.chat.id, f"❌ File ID `{file_id}` database-এ পাওয়া যায়নি। সঠিক আইডি দিয়ে আবার চেষ্টা করুন।")
+
+# --- Stream Upload & R2 Chunk Handler (RAM Safe & Auto Cleanup) ---
 @bot.message_handler(content_types=['photo', 'video', 'document', 'audio'], func=lambda message: True)
 def upload_media_handler(message):
     user_id = message.from_user.id
