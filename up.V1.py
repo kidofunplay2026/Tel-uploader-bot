@@ -162,11 +162,15 @@ def storage_callback_handler(call):
     choice = call.data
     storage_type = "Cloudflare R2" if choice == "storage_r2" else "Backblaze B2"
     
-    bot.edit_message_text(f"🚀 ফাইলটি **{storage_type}**-এ আপলোড ও প্রসেসিং শুরু হয়েছে, দয়া করে অপেক্ষা করুন...", call.message.chat.id, call.message.message_id)
+    bot.answer_callback_query(call.id, f"{storage_type} সিলেক্ট করা হয়েছে। আপলোড শুরু হচ্ছে...")
+    bot.edit_message_text(f"🚀 ফাইলটি **{storage_type}**-এ আপলোড ও প্রসেসিং হচ্ছে, দয়া করে অপেক্ষা করুন...", call.message.chat.id, call.message.message_id)
     
-    process_and_upload_file(message, choice)
+    try:
+        process_and_upload_file(message, choice, call.message.chat.id, call.message.message_id)
+    except Exception as e:
+        print(f"Error in callback processing: {e}")
 
-def process_and_upload_file(message, choice):
+def process_and_upload_file(message, choice, chat_id, message_id):
     user_id = message.from_user.id
     
     if message.video:
@@ -182,7 +186,7 @@ def process_and_upload_file(message, choice):
         file_info = bot.get_file(message.audio.file_id)
         file_extension = ".mp3"
     else:
-        send_message(message.chat.id, "❌ অনুগ্রহ করে সঠিক মিডিয়া বা ভিডিও ফাইল পাঠান।")
+        send_message(chat_id, "❌ অনুগ্রহ করে সঠিক মিডিয়া বা ভিডিও ফাইল পাঠান।")
         return
 
     local_path = None
@@ -218,6 +222,11 @@ def process_and_upload_file(message, choice):
             'download_url': download_url_link,
             'created_at': datetime.utcnow()
         })
+        
+        try:
+            bot.delete_message(chat_id, message_id)
+        except:
+            pass
             
         success_text = (
             f"✅ **File Uploaded Successfully to {storage_name}!**\n\n"
@@ -226,10 +235,10 @@ def process_and_upload_file(message, choice):
             f"🔗 **Embed / Stream Link:**\n`{file_url_link}`\n\n"
             f"📥 **Download Link:**\n`{download_url_link}`"
         )
-        send_message(message.chat.id, success_text, reply_markup=main_keyboard(DEFAULT_LANGUAGE))
+        send_message(chat_id, success_text, reply_markup=main_keyboard(DEFAULT_LANGUAGE))
     except Exception as e:
         print(f"Upload Error: {e}")
-        send_message(message.chat.id, f"❌ আপলোড ব্যর্থ হয়েছে: {e}")
+        send_message(chat_id, f"❌ আপলোড ব্যর্থ হয়েছে: {e}")
     finally:
         if local_path and os.path.exists(local_path):
             try: os.remove(local_path)
