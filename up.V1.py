@@ -26,15 +26,29 @@ OWNER_ID = INITIAL_ADMIN_IDS[0]
 R2_ENDPOINT = "https://1d019a88777f3e5ea2f04de9974f028d.r2.cloudflarestorage.com"
 R2_ACCESS_KEY_ID = "ae9ff2ee5a83fd4f6d3db75297c0a76b"
 R2_SECRET_ACCESS_KEY = "4b27c68e8e1599885cffe25e7d41217d2fae82e85a41aa02f0756d574d79ee87"
-BUCKET_NAME = "relax-movizone-bucket"
+R2_BUCKET_NAME = "relax-movizone-bucket"
 R2_PUBLIC_DOMAIN = "https://pub-ee66f5d697d3475a99079f1a9c567f66.r2.dev" 
 
-s3_client = boto3.client(
+r2_client = boto3.client(
     's3',
     endpoint_url=R2_ENDPOINT,
     aws_access_key_id=R2_ACCESS_KEY_ID,
     aws_secret_access_key=R2_SECRET_ACCESS_KEY,
     region_name='auto'
+)
+
+# --- Backblaze B2 (S3 Compatible) Setup ---
+B2_ENDPOINT = "https://s3.us-west-005.backblazeb2.com"
+B2_ACCESS_KEY_ID = "00529877a5de96a0000000001"
+B2_SECRET_ACCESS_KEY = "K005tvFV6fS+ClJPMhS+VzRdCK6YD6I"
+B2_BUCKET_NAME = "relex-movi-zone-bucket"
+
+b2_client = boto3.client(
+    's3',
+    endpoint_url=B2_ENDPOINT,
+    aws_access_key_id=B2_ACCESS_KEY_ID,
+    aws_secret_access_key=B2_SECRET_ACCESS_KEY,
+    region_name='us-west-005'
 )
 
 transfer_config = TransferConfig(
@@ -60,6 +74,8 @@ except Exception as e:
 DEFAULT_LANGUAGE = "en"
 bot = telebot.TeleBot(BOT_TOKEN)
 
+user_temp_data = {}
+
 def get_next_sequence_value(sequence_name):
     sequence_document = counters_collection.find_one_and_update(
         {'_id': sequence_name},
@@ -75,9 +91,8 @@ def load_language(lang_code):
         "delete_button": "🗑 Delete File",
         "get_file_button": "📥 Get File",
         "profile_button": "👤 Profile",
-        "start_message": "Welcome to Relax Movizone Bot! Send your large video to stream directly to Cloudflare R2.",
-        "upload_invalid_media_type": "Please send a valid video or media file.",
-        "upload_success_message": "✅ **File Uploaded Successfully to Cloudflare R2!**\n\n🆔 **File ID:** `{file_id}`\n🔗 **Embed/Stream Link:**\n`{download_link}`"
+        "start_message": "Welcome to Relax Movizone Bot! Send your large video to stream directly to Cloudflare R2 or Backblaze B2.",
+        "upload_invalid_media_type": "Please send a valid video or media file."
     }
 
 def get_user_lang(user_id):
@@ -122,7 +137,107 @@ def profile_btn_handler(message):
     profile_text = f"👤 **User Profile**\n\nName: {user_name}\nID: `{user_id}`\nTotal Uploads: {file_count}"
     send_message(message.chat.id, profile_text)
 
-# --- File Delete Logic (Cloudflare R2 + Database) ---
+# --- Media Receiver & Storage Choice Prompt ---
+@bot.message_handler(content_types=['photo', 'video', 'document', 'audio'], func=lambda message: True)
+def media_receiver_handler(message):
+    user_id = message.from_user.id
+    user_temp_data[user_id] = message
+    
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("☁️ Cloudflare R2 (1)", callback_data="storage_r2"),
+        types.InlineKeyboardButton("📦 Backblaze B2 (2)", callback_data="storage_b2")
+    )
+    send_message(message.chat.id, "📥 **ফাইল পাওয়া গেছে!**\n\nআপনি এই ফাইলটি কোথায় আপলোড করতে চান? নিচে থেকে সিলেক্ট করুন:", reply_markup=markup)
+
+# --- Storage Selection Callback Handler ---
+@bot.callback_query_handler(func=lambda call: call.data.startswith("storage_"))
+def storage_callback_handler(call):
+    user_id = call.from_user.id
+    if user_id not in user_temp_data:
+        bot.answer_callback_query(call.id, "❌ সেশন মেয়াদোত্তীর্ণ হয়ে গেছে। দয়া করে ফাইলটি আবার পাঠান।", show_alert=True)
+        return
+        
+    message = user_temp_data[user_id]
+    choice = call.data
+    storage_type = "Cloudflare R2" if choice == "storage_r2" else "Backblaze B2"
+    
+    bot.edit_message_text(f"🚀 ফাইলটি **{storage_type}**-এ আপলোড ও প্রসেসিং শুরু হয়েছে, দয়া করে অপেক্ষা করুন...", call.message.chat.id, call.message.message_id)
+    
+    process_and_upload_file(message, choice)
+
+def process_and_upload_file(message, choice):
+    user_id = message.from_user.id
+    
+    if message.video:
+        file_info = bot.get_file(message.video.file_id)
+        file_extension = ".mp4"
+    elif message.document:
+        file_info = bot.get_file(message.document.file_id)
+        file_extension = os.path.splitext(message.document.file_name)[1] if message.document.file_name else ".mp4"
+    elif message.photo:
+        file_info = bot.get_file(message.photo[-1].file_id)
+        file_extension = ".jpg"
+    elif message.audio:
+        file_info = bot.get_file(message.audio.file_id)
+        file_extension = ".mp3"
+    else:
+        send_message(message.chat.id, "❌ অনুগ্রহ করে সঠিক মিডিয়া বা ভিডিও ফাইল পাঠান।")
+        return
+
+    local_path = None
+    try:
+        global_file_id = get_next_sequence_value('global_file_id')
+        unique_filename = f"movie_{global_file_id}{file_extension}"
+        local_path = f"temp_{unique_filename}"
+
+        file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+        with requests.get(file_url, stream=True) as r:
+            r.raise_for_status()
+            with open(local_path, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    if chunk: f.write(chunk)
+        
+        if choice == "storage_r2":
+            r2_client.upload_file(local_path, R2_BUCKET_NAME, unique_filename, Config=transfer_config)
+            file_url_link = f"{R2_PUBLIC_DOMAIN}/{unique_filename}"
+            download_url_link = file_url_link
+            storage_name = "Cloudflare R2"
+        else:
+            b2_client.upload_file(local_path, B2_BUCKET_NAME, unique_filename, Config=transfer_config)
+            file_url_link = f"{B2_ENDPOINT}/file/{B2_BUCKET_NAME}/{unique_filename}"
+            download_url_link = file_url_link
+            storage_name = "Backblaze B2"
+        
+        files_collection.insert_one({
+            '_id': global_file_id,
+            'uploader_id': user_id,
+            'file_name': unique_filename,
+            'storage_type': storage_name,
+            'r2_url': file_url_link,
+            'download_url': download_url_link,
+            'created_at': datetime.utcnow()
+        })
+            
+        success_text = (
+            f"✅ **File Uploaded Successfully to {storage_name}!**\n\n"
+            f"🆔 **File ID:** `{global_file_id}`\n"
+            f"📌 **File Name:** `{unique_filename}`\n\n"
+            f"🔗 **Embed / Stream Link:**\n`{file_url_link}`\n\n"
+            f"📥 **Download Link:**\n`{download_url_link}`"
+        )
+        send_message(message.chat.id, success_text, reply_markup=main_keyboard(DEFAULT_LANGUAGE))
+    except Exception as e:
+        print(f"Upload Error: {e}")
+        send_message(message.chat.id, f"❌ আপলোড ব্যর্থ হয়েছে: {e}")
+    finally:
+        if local_path and os.path.exists(local_path):
+            try: os.remove(local_path)
+            except: pass
+        if user_id in user_temp_data:
+            del user_temp_data[user_id]
+
+# --- File Delete Logic ---
 @bot.message_handler(func=lambda message: message.text and ("delete" in message.text.lower() or "ডিলিট" in message.text))
 def handle_delete_file_request(message):
     numbers = re.findall(r'\d+', message.text)
@@ -138,16 +253,21 @@ def handle_delete_file_request(message):
         return
         
     file_name = file_doc.get('file_name')
+    storage_type = file_doc.get('storage_type', 'Cloudflare R2')
     
     try:
-        s3_client.delete_object(Bucket=BUCKET_NAME, Key=file_name)
+        if "Backblaze" in storage_type:
+            b2_client.delete_object(Bucket=B2_BUCKET_NAME, Key=file_name)
+        else:
+            r2_client.delete_object(Bucket=R2_BUCKET_NAME, Key=file_name)
+            
         files_collection.delete_one({'_id': file_id})
-        send_message(message.chat.id, f"✅ File ID `{file_id}` (`{file_name}`) সফলভাবে ক্লাউডফ্লেয়ার R2 এবং ডাটাবেজ থেকে চিরতরে ডিলিট করা হয়েছে!")
+        send_message(message.chat.id, f"✅ File ID `{file_id}` (`{file_name}`) সফলভাবে `{storage_type}` এবং ডাটাবেজ থেকে চিরতরে ডিলিট করা হয়েছে!")
     except Exception as e:
-        print(f"R2 Delete Error: {e}")
+        print(f"Delete Error: {e}")
         send_message(message.chat.id, f"❌ ক্লাউড থেকে ফাইল ডিলিট করার সময় সমস্যা হয়েছে: {e}")
 
-# --- File ID Lookup Handler (For Get File) ---
+# --- File ID Lookup Handler ---
 @bot.message_handler(func=lambda message: message.text and any(char.isdigit() for char in message.text) and not "delete" in message.text.lower() and not "ডিলিট" in message.text)
 def handle_file_id_input(message):
     numbers = re.findall(r'\d+', message.text)
@@ -158,72 +278,22 @@ def handle_file_id_input(message):
     file_doc = files_collection.find_one({'_id': file_id})
     
     if file_doc:
-        r2_url = file_doc.get('r2_url')
+        file_url = file_doc.get('r2_url')
+        download_url = file_doc.get('download_url', file_url)
         file_name = file_doc.get('file_name', 'Video')
-        response_text = f"📁 **File Found!**\n\n🆔 **File ID:** `{file_id}`\n📌 **File Name:** `{file_name}`\n🔗 **Stream/Embed Link:**\n`{r2_url}`"
+        storage_type = file_doc.get('storage_type', 'Cloudflare R2')
+        
+        response_text = (
+            f"📁 **File Found!**\n\n"
+            f"🆔 **File ID:** `{file_id}`\n"
+            f"📌 **File Name:** `{file_name}`\n"
+            f"☁️ **Storage:** `{storage_type}`\n\n"
+            f"🔗 **Embed/Stream Link:**\n`{file_url}`\n\n"
+            f"📥 **Download Link:**\n`{download_url}`"
+        )
         send_message(message.chat.id, response_text)
     else:
         send_message(message.chat.id, f"❌ File ID `{file_id}` database-এ পাওয়া যায়নি। সঠিক আইডি দিয়ে আবার চেষ্টা করুন।")
-
-# --- Stream Upload & R2 Chunk Handler (RAM Safe & Auto Cleanup) ---
-@bot.message_handler(content_types=['photo', 'video', 'document', 'audio'], func=lambda message: True)
-def upload_media_handler(message):
-    user_id = message.from_user.id
-    lang_data = get_user_lang(user_id)
-    
-    if message.video:
-        file_info = bot.get_file(message.video.file_id)
-        file_extension = ".mp4"
-    elif message.document:
-        file_info = bot.get_file(message.document.file_id)
-        file_extension = os.path.splitext(message.document.file_name)[1] if message.document.file_name else ".mp4"
-    elif message.photo:
-        file_info = bot.get_file(message.photo[-1].file_id)
-        file_extension = ".jpg"
-    elif message.audio:
-        file_info = bot.get_file(message.audio.file_id)
-        file_extension = ".mp3"
-    else:
-        send_message(message.chat.id, lang_data["upload_invalid_media_type"])
-        return
-
-    status_msg = bot.send_message(message.chat.id, "📥 Streaming and uploading large file to Cloudflare R2...")
-    local_path = None
-    try:
-        global_file_id = get_next_sequence_value('global_file_id')
-        unique_filename = f"movie_{global_file_id}{file_extension}"
-        local_path = f"temp_{unique_filename}"
-
-        file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
-        with requests.get(file_url, stream=True) as r:
-            r.raise_for_status()
-            with open(local_path, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    if chunk: f.write(chunk)
-        
-        s3_client.upload_file(local_path, BUCKET_NAME, unique_filename, Config=transfer_config)
-        r2_file_url = f"{R2_PUBLIC_DOMAIN}/{unique_filename}"
-        
-        files_collection.insert_one({
-            '_id': global_file_id,
-            'uploader_id': user_id,
-            'file_name': unique_filename,
-            'r2_url': r2_file_url,
-            'created_at': datetime.utcnow()
-        })
-        
-        try: bot.delete_message(message.chat.id, status_msg.message_id)
-        except: pass
-            
-        success_text = lang_data["upload_success_message"].format(file_id=global_file_id, download_link=r2_file_url)
-        send_message(message.chat.id, success_text, reply_markup=main_keyboard(DEFAULT_LANGUAGE))
-    except Exception as e:
-        print(f"R2 Stream Upload Error: {e}")
-        bot.edit_message_text(f"❌ Upload failed due to error: {e}", message.chat.id, status_msg.message_id)
-    finally:
-        if local_path and os.path.exists(local_path):
-            try: os.remove(local_path)
-            except: pass
 
 # --- Temporary Web Server for Fly.io Port Binding ---
 class SimpleHandler(BaseHTTPRequestHandler):
@@ -252,7 +322,7 @@ if __name__ == "__main__":
     server_thread.daemon = True
     server_thread.start()
 
-    print("Bot starting with R2 Multipart Streaming & Auto-Cleanup...")
+    print("Bot starting with Multi-Storage (Cloudflare R2 & Backblaze B2) Support...")
     while True:
         try:
             bot.infinity_polling(timeout=60, long_polling_timeout=60)
