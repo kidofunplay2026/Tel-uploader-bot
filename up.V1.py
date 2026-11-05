@@ -33,7 +33,7 @@ r2_client = boto3.client(
 B2_ENDPOINT = "https://s3.us-west-005.backblazeb2.com"
 B2_ACCESS_KEY_ID = "00529877a5de96a0000000001"
 B2_SECRET_ACCESS_KEY = "K005tvFV6fS+ClJPMhS+VzRdCK6YD6I"
-B2_BUCKET_NAME = "relex-movi-zone-bucket"
+B2_BUCKET_NAME = "relex-movi-zone-Bucket"
 
 b2_client = boto3.client(
     's3',
