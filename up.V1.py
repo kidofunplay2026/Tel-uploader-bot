@@ -1,13 +1,16 @@
-import telebot
 import os
 import pymongo
-from telebot import types
+from telethon import TelegramClient, events
+from telethon.tl.types import DocumentAttributeFilename
 from datetime import datetime
 import boto3
 import requests
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
+# --- Credentials ---
+API_ID = 30908660
+API_HASH = "ee861ae49daea1486f10d3a45a1b3ea9"
 BOT_TOKEN = "8955533459:AAE9PZjpEGTH3taG_WS6s0ZJN7FHe4OZGNA"
 
 # --- Cloudflare R2 Setup ---
@@ -49,8 +52,8 @@ try:
 except Exception as e:
     print(f"MongoDB Connection Error: {e}")
 
-bot = telebot.TeleBot(BOT_TOKEN)
-user_temp_data = {}
+# Telethon Bot Client Initialization
+bot = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
 def get_next_sequence_value(sequence_name):
     sequence_document = counters_collection.find_one_and_update(
@@ -61,113 +64,78 @@ def get_next_sequence_value(sequence_name):
     )
     return sequence_document['sequence_value']
 
-def send_message(chat_id, text, reply_markup=None):
-    try: bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=reply_markup, disable_web_page_preview=True)
-    except Exception as e: print(f"Error sending message: {e}")
+@bot.on(events.NewMessage(pattern='/start'))
+async def start_handler(event):
+    await event.respond("Welcome! Forward any large movie/video here to upload to Cloudflare R2 or Backblaze B2.")
 
-@bot.message_handler(commands=['start'])
-def start_command_handler(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add(types.KeyboardButton("📤 Upload Video"), types.KeyboardButton("🗑 Delete File"))
-    markup.add(types.KeyboardButton("📥 Get File"), types.KeyboardButton("👤 Profile"))
-    send_message(message.chat.id, "Welcome! Forward any movie/video here to upload to Cloudflare R2 or Backblaze B2.", reply_markup=markup)
+@bot.on(events.NewMessage(incoming=True))
+async def media_handler(event):
+    if not event.media:
+        return
+    
+    from telethon import Button
+    buttons = [
+        [Button.inline("☁️ Cloudflare R2", b"r2"), Button.inline("📦 Backblaze B2", b"b2")]
+    ]
+    
+    await event.respond("📥 **ফাইল পাওয়া গেছে!** কোথায় আপলোড করবেন সিলেক্ট করুন:", buttons=buttons)
+    event.client._temp_media = event.message
 
-@bot.message_handler(content_types=['photo', 'video', 'document', 'audio'])
-def media_receiver_handler(message):
-    user_temp_data[message.from_user.id] = message
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        types.InlineKeyboardButton("☁️ Cloudflare R2", callback_data="storage_r2"),
-        types.InlineKeyboardButton("📦 Backblaze B2", callback_data="storage_b2")
-    )
-    send_message(message.chat.id, "📥 **ফাইল বা ভিডিও পাওয়া গেছে!** কোথায় আপলোড করবেন সিলেক্ট করুন:", reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("storage_"))
-def storage_callback_handler(call):
-    user_id = call.from_user.id
-    if user_id not in user_temp_data:
-        bot.answer_callback_query(call.id, "❌ সেশন শেষ! আবার ভিডিও ফরোয়ার্ড করুন।", show_alert=True)
+@bot.on(events.CallbackQuery)
+async def callback_handler(event):
+    data = event.data.decode('utf-8')
+    if data not in ["r2", "b2"]:
         return
         
-    message = user_temp_data[user_id]
-    choice = call.data
-    storage_name = "Cloudflare R2" if choice == "storage_r2" else "Backblaze B2"
-    
-    bot.answer_callback_query(call.id, f"{storage_name} সিলেক্ট করা হয়েছে।")
-    bot.edit_message_text(f"🚀 ফাইলটি ডাউনলোড করে **{storage_name}**-এ আপলোড হচ্ছে, অপেক্ষা করুন...", call.message.chat.id, call.message.message_id)
-    
-    try:
-        process_and_upload_file(message, choice, call.message.chat.id, call.message.message_id)
-    except Exception as e:
-        print(f"Error: {e}")
-        send_message(call.message.chat.id, f"❌ আপলোড এরর: {e}")
-
-def process_and_upload_file(message, choice, chat_id, message_id):
-    user_id = message.from_user.id
-    
-    if message.video:
-        file_info = bot.get_file(message.video.file_id)
-        file_extension = ".mp4"
-    elif message.document:
-        file_info = bot.get_file(message.document.file_id)
-        file_extension = os.path.splitext(message.document.file_name)[1] if message.document.file_name else ".mp4"
-    elif message.photo:
-        file_info = bot.get_file(message.photo[-1].file_id)
-        file_extension = ".jpg"
-    elif message.audio:
-        file_info = bot.get_file(message.audio.file_id)
-        file_extension = ".mp3"
-    else:
-        send_message(chat_id, "❌ সঠিক মিডিয়া ফাইল দিন।")
+    original_msg = getattr(event.client, '_temp_media', None)
+    if not original_msg:
+        await event.answer("সেশন শেষ! আবার ভিডিও ফরোয়ার্ড করুন।", alert=True)
         return
-
+        
+    storage_name = "Cloudflare R2" if data == "r2" else "Backblaze B2"
+    await event.edit(f"🚀 ফাইলটি ডাউনলোড করে **{storage_name}**-এ আপলোড হচ্ছে, অপেক্ষা করুন...")
+    
     local_path = None
     try:
         global_file_id = get_next_sequence_value('global_file_id')
+        
+        file_extension = ".mp4"
+        if original_msg.media.document and original_msg.media.document.attributes:
+            for attr in original_msg.media.document.attributes:
+                if isinstance(attr, DocumentAttributeFilename):
+                    file_extension = os.path.splitext(attr.file_name)[1]
+                
         unique_filename = f"movie_{global_file_id}{file_extension}"
         local_path = f"temp_{unique_filename}"
-
-        file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
-        with requests.get(file_url, stream=True) as r:
-            r.raise_for_status()
-            with open(local_path, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=1024*1024):
-                    if chunk: f.write(chunk)
+        
+        # Telethon দিয়ে আনলিমিটেড সাইজের ফাইল ডাউনলোড
+        await original_msg.download_media(file=local_path)
         
         extra_args = {'ContentType': 'video/mp4', 'ContentDisposition': 'inline'}
 
-        if choice == "storage_r2":
+        if data == "r2":
             r2_client.upload_file(local_path, R2_BUCKET_NAME, unique_filename, ExtraArgs=extra_args)
             file_url_link = f"{R2_PUBLIC_DOMAIN}/{unique_filename}"
-            storage_name = "Cloudflare R2"
         else:
             b2_client.upload_file(local_path, B2_BUCKET_NAME, unique_filename, ExtraArgs=extra_args)
             file_url_link = f"{B2_ENDPOINT}/file/{B2_BUCKET_NAME}/{unique_filename}"
-            storage_name = "Backblaze B2"
-        
+            
         files_collection.insert_one({
             '_id': global_file_id,
-            'uploader_id': user_id,
             'file_name': unique_filename,
             'storage_type': storage_name,
             'r2_url': file_url_link,
             'created_at': datetime.utcnow()
         })
         
-        try: bot.delete_message(chat_id, message_id)
-        except: pass
-            
-        success_text = f"✅ **Uploaded to {storage_name}!**\n\n🆔 **ID:** `{global_file_id}`\n🔗 **Link:**\n`{file_url_link}`"
-        send_message(chat_id, success_text)
+        await event.edit(f"✅ **Uploaded to {storage_name}!**\n\n🆔 **ID:** `{global_file_id}`\n🔗 **Link:**\n`{file_url_link}`")
     except Exception as e:
-        print(f"Upload Fail: {e}")
-        send_message(chat_id, f"❌ আপলোড ব্যর্থ: {e}")
+        print(f"Error: {e}")
+        await event.edit(f"❌ আপলোড ব্যর্থ: {e}")
     finally:
         if local_path and os.path.exists(local_path):
             try: os.remove(local_path)
             except: pass
-        if user_id in user_temp_data:
-            del user_temp_data[user_id]
 
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -177,9 +145,6 @@ class SimpleHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args): pass
 
 if __name__ == "__main__":
-    threading.Thread(target=lambda: HTTPServer(('0.0.0.0', int(os.environ.get("PORT", 8080))) , SimpleHandler).serve_forever(), daemon=True).start()
-    while True:
-        try: bot.infinity_polling(timeout=60, long_polling_timeout=60)
-        except Exception as e:
-            print(f"Polling error: {e}")
-            import time; time.sleep(5)
+    threading.Thread(target=lambda: HTTPServer(('0.0.0.0', int(os.environ.get("PORT", 8080))), SimpleHandler).serve_forever(), daemon=True).start()
+    print("Bot started with Telethon...")
+    bot.run_until_disconnected()
