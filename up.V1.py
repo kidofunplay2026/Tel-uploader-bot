@@ -7,7 +7,6 @@ import boto3
 import requests
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
-import re
 
 BOT_TOKEN = "8955533459:AAE9PZjpEGTH3taG_WS6s0ZJN7FHe4OZGNA"
 
@@ -71,7 +70,7 @@ def start_command_handler(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(types.KeyboardButton("📤 Upload Video"), types.KeyboardButton("🗑 Delete File"))
     markup.add(types.KeyboardButton("📥 Get File"), types.KeyboardButton("👤 Profile"))
-    send_message(message.chat.id, "Welcome to Relax Movizone Bot! Send your video to stream directly to Cloudflare R2 or Backblaze B2.", reply_markup=markup)
+    send_message(message.chat.id, "Welcome! Forward any movie/video here to upload to Cloudflare R2 or Backblaze B2.", reply_markup=markup)
 
 @bot.message_handler(content_types=['photo', 'video', 'document', 'audio'])
 def media_receiver_handler(message):
@@ -81,13 +80,13 @@ def media_receiver_handler(message):
         types.InlineKeyboardButton("☁️ Cloudflare R2", callback_data="storage_r2"),
         types.InlineKeyboardButton("📦 Backblaze B2", callback_data="storage_b2")
     )
-    send_message(message.chat.id, "📥 **ফাইল পাওয়া গেছে!** কোথায় আপলোড করবেন সিলেক্ট করুন:", reply_markup=markup)
+    send_message(message.chat.id, "📥 **ফাইল বা ভিডিও পাওয়া গেছে!** কোথায় আপলোড করবেন সিলেক্ট করুন:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("storage_"))
 def storage_callback_handler(call):
     user_id = call.from_user.id
     if user_id not in user_temp_data:
-        bot.answer_callback_query(call.id, "❌ সেশন শেষ! আবার ফাইল পাঠান।", show_alert=True)
+        bot.answer_callback_query(call.id, "❌ সেশন শেষ! আবার ভিডিও ফরোয়ার্ড করুন।", show_alert=True)
         return
         
     message = user_temp_data[user_id]
@@ -95,7 +94,7 @@ def storage_callback_handler(call):
     storage_name = "Cloudflare R2" if choice == "storage_r2" else "Backblaze B2"
     
     bot.answer_callback_query(call.id, f"{storage_name} সিলেক্ট করা হয়েছে।")
-    bot.edit_message_text(f"🚀 ফাইলটি **{storage_name}**-এ আপলোড হচ্ছে, অপেক্ষা করুন...", call.message.chat.id, call.message.message_id)
+    bot.edit_message_text(f"🚀 ফাইলটি ডাউনলোড করে **{storage_name}**-এ আপলোড হচ্ছে, অপেক্ষা করুন...", call.message.chat.id, call.message.message_id)
     
     try:
         process_and_upload_file(message, choice, call.message.chat.id, call.message.message_id)
@@ -132,7 +131,7 @@ def process_and_upload_file(message, choice, chat_id, message_id):
         with requests.get(file_url, stream=True) as r:
             r.raise_for_status()
             with open(local_path, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=8192):
+                for chunk in r.iter_content(chunk_size=1024*1024):
                     if chunk: f.write(chunk)
         
         extra_args = {'ContentType': 'video/mp4', 'ContentDisposition': 'inline'}
@@ -178,7 +177,7 @@ class SimpleHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args): pass
 
 if __name__ == "__main__":
-    threading.Thread(target=lambda: HTTPServer(('0.0.0.0', int(os.environ.get("PORT", 8080))), SimpleHandler).serve_forever(), daemon=True).start()
+    threading.Thread(target=lambda: HTTPServer(('0.0.0.0', int(os.environ.get("PORT", 8080))) , SimpleHandler).serve_forever(), daemon=True).start()
     while True:
         try: bot.infinity_polling(timeout=60, long_polling_timeout=60)
         except Exception as e:
