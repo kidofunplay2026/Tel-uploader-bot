@@ -1,4 +1,4 @@
-pyTelegramBotAPI
-pymongo
-boto3
-requests
+​pyTelegramBotAPI
+​telethon
+​boto3
+​requests
