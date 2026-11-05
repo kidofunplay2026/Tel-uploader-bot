@@ -237,12 +237,24 @@ class SimpleHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"Bot is running!")
-    
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), SimpleHandler)
+    print(f"HTTP server running on port {port}")
+    server.serve_forever()
+
+if __name__ == "__main__":
     try:
         if counters_collection.find_one({'_id': 'global_file_id'}) is None:
             counters_collection.insert_one({'_id': 'global_file_id', 'sequence_value': 0})
     except Exception as e:
         print(f"Counter init warning: {e}")
         
+    # ব্যাকগ্রাউন্ডে এইচটিটিপি সার্ভার চালু করা (Fly.io এর পোর্ট রিকোয়েস্ট সামলানোর জন্য)
+    server_thread = threading.Thread(target=run_web_server)
+    server_thread.daemon = True
+    server_thread.start()
+
     print("Bot starting with R2 Multipart Streaming & Auto-Cleanup...")
     bot.infinity_polling()
