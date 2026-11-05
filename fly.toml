@@ -4,13 +4,6 @@ primary_region = 'ams'
 [build]
   dockerfile = 'Dockerfile'
 
-[services]
-  internal_port = 0
-  processes = ["app"]
-
-[[services.ports]]
-  port = 0
-
 [[vm]]
   memory = '1gb'
   cpu_kind = 'shared'
