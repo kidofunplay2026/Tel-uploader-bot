@@ -52,7 +52,6 @@ try:
 except Exception as e:
     print(f"MongoDB Connection Error: {e}")
 
-# Telethon Bot Client Initialization
 bot = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
 def get_next_sequence_value(sequence_name):
@@ -93,7 +92,7 @@ async def callback_handler(event):
         return
         
     storage_name = "Cloudflare R2" if data == "r2" else "Backblaze B2"
-    await event.edit(f"🚀 ফাইলটি ডাউনলোড করে **{storage_name}**-এ আপলোড হচ্ছে, অপেক্ষা করুন...")
+    await event.edit(f"🚀 ফাইলটি চংক আকারে ডাউনলোড ও **{storage_name}**-এ আপলোড হচ্ছে, অপেক্ষা করুন...")
     
     local_path = None
     try:
@@ -108,8 +107,10 @@ async def callback_handler(event):
         unique_filename = f"movie_{global_file_id}{file_extension}"
         local_path = f"temp_{unique_filename}"
         
-        # Telethon দিয়ে আনলিমিটেড সাইজের ফাইল ডাউনলোড
-        await original_msg.download_media(file=local_path)
+        # চংক আকারে ফাইল স্ট্রিম করে ডাউনলোড করার লজিক (మెమోরি সেভিং)
+        with open(local_path, 'wb') as f:
+            async for chunk in bot.iter_download(original_msg.media, chunk_size=1024 * 1024):
+                f.write(chunk)
         
         extra_args = {'ContentType': 'video/mp4', 'ContentDisposition': 'inline'}
 
@@ -146,5 +147,5 @@ class SimpleHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     threading.Thread(target=lambda: HTTPServer(('0.0.0.0', int(os.environ.get("PORT", 8080))), SimpleHandler).serve_forever(), daemon=True).start()
-    print("Bot started with Telethon...")
+    print("Bot started with Telethon Chunk Streaming...")
     bot.run_until_disconnected()
