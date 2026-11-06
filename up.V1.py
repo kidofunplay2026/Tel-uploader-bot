@@ -92,7 +92,7 @@ async def callback_handler(event):
         return
         
     storage_name = "Cloudflare R2" if data == "r2" else "Backblaze B2"
-    status_msg = await event.edit(f"🚀 ব্যাকগ্রাউন্ডে ফাইল ডাউনলোড ও **{storage_name}**-এ আপলোড শুরু হয়েছে...")
+    status_msg = await event.edit(f"🚀 **{storage_name}**-এর জন্য প্রসেসিং শুরু হচ্ছে...")
     
     asyncio.create_task(process_upload_task(original_msg, data, storage_name, event.chat_id, status_msg.id))
 
@@ -110,11 +110,31 @@ async def process_upload_task(original_msg, data, storage_name, chat_id, message
         unique_filename = f"movie_{global_file_id}{file_extension}"
         local_path = f"temp_{unique_filename}"
         
+        # প্রোগ্রেস বার লজিক (টেলিগ্রাম থেকে ফাইল ডাউনলোডের সময় লাইভ পার্সেন্ট দেখাবে)
+        last_update_time = [0]
+        async def progress_callback(current, total):
+            now = asyncio.get_event_loop().time()
+            if now - last_update_time[0] > 4 or current == total:
+                last_update_time[0] = now
+                percent = (current / total) * 100 if total > 0 else 0
+                downloaded_mb = current / (1024 * 1024)
+                total_mb = total / (1024 * 1024) if total > 0 else 0
+                try:
+                    await bot.edit_message(
+                        chat_id, 
+                        message_id, 
+                        f"📥 **ফাইল ডাউনলোড হচ্ছে ({storage_name})...**\n\n📊 **Progress:** `{percent:.1f}%`\n💾 **Size:** `{downloaded_mb:.1f} MB` / `{total_mb:.1f} MB`"
+                    )
+                except Exception:
+                    pass
+
         # চংক আকারে টেলিগ্রাম থেকে ফাইল ডাউনলোড
         with open(local_path, 'wb') as f:
-            async for chunk in bot.iter_download(original_msg.media, chunk_size=512 * 1024):
+            async for chunk in bot.iter_download(original_msg.media, chunk_size=512 * 1024, callback=progress_callback):
                 f.write(chunk)
         
+        await bot.edit_message(chat_id, message_id, f"🚀 **ডাউনলোড শেষ!** এখন **{storage_name}**-এ আপলোড করা হচ্ছে...")
+
         if data == "r2":
             extra_args = {'ContentType': 'video/mp4', 'ContentDisposition': 'inline'}
             r2_client.upload_file(local_path, R2_BUCKET_NAME, unique_filename, ExtraArgs=extra_args)
