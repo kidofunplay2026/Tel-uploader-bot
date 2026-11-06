@@ -112,7 +112,7 @@ async def process_upload_task(original_msg, data, storage_name, chat_id, message
         
         # চংক আকারে টেলিগ্রাম থেকে ফাইল ডাউনলোড (সঠিক ও ত্রুটিমুক্ত পদ্ধতি)
         with open(local_path, 'wb') as f:
-            async for chunk in bot.iter_download(original_msg.media, chunk_size=256 * 1024):
+            async for chunk in bot.iter_download(original_msg.media, chunk_size=100 * 1024):
                 f.write(chunk)
         
         if data == "r2":
