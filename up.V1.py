@@ -32,9 +32,9 @@ r2_client = boto3.client(
     region_name='auto'
 )
 
-# --- Backblaze B2 Native Setup ---
-B2_KEY_ID = "00529877a5de96a0000000001"
-B2_APPLICATION_KEY = "K005tvFV6fS+ClJPMhS+VzRdCK6YD6I"
+# --- Backblaze B2 Native Master Key Setup ---
+B2_KEY_ID = "29877a5de96a"
+B2_APPLICATION_KEY = "005a048d4b285a1f41fbbbaca9045b256939f298dc"
 B2_BUCKET_NAME = "relex-movi-zone-Bucket"
 
 # b2sdk অথরাইজেশন সেটআপ
