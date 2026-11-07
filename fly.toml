@@ -1,3 +1,8 @@
+# fly.toml app configuration file generated for tel-uploader-bot on 2026-11-07T01:37:59Z
+#
+# See https://docs.fly.io/reference/configuration for information about how to use this file.
+#
+
 app = 'tel-uploader-bot'
 primary_region = 'ams'
 
@@ -16,3 +21,8 @@ primary_region = 'ams'
   cpu_kind = 'shared'
   cpus = 1
   memory_mb = 256
+
+[[restart]]
+  policy = 'always'
+  processes = ['app']
+  retries = 10
