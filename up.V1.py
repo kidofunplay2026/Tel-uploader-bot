@@ -126,7 +126,7 @@ async def process_upload_task(original_msg, data, storage_name, chat_id, message
                 local_file=local_path,
                 file_name=unique_filename
             )
-            file_url_link = f"https://f005.backblazeb2.com/file/{B2_BUCKET_NAME}/{unique_filename}"
+            file_url_link = f"https://stream.relexmovizone.online/file/{B2_BUCKET_NAME}/{unique_filename}"
             
         files_collection.insert_one({
             '_id': global_file_id,
